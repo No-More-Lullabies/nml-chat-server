@@ -5,24 +5,44 @@ const server = new WebSocket.Server({ port: PORT });
 
 let chatHistory = [];
 
-// Clear out old messages older than 15 minutes
+// ⏱️ Keep only messages from the past 2 hours
 function cleanOldMessages() {
   const now = Date.now();
-  chatHistory = chatHistory.filter(msg => now - msg.timestamp < 15 * 60 * 1000);
+  chatHistory = chatHistory.filter(msg => now - msg.timestamp < 2 * 60 * 60 * 1000); // 2 hours
 }
 
+// 📣 Broadcast current user count to all clients
+function broadcastUserCount() {
+  const count = [...server.clients].filter(client => client.readyState === WebSocket.OPEN).length;
+  const data = JSON.stringify({ type: 'userCount', count });
+
+  server.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(data);
+    }
+  });
+}
+
+// 🔌 Handle new WebSocket connections
 server.on('connection', socket => {
   cleanOldMessages();
 
-  // Send chat history to the newly connected client
+  // Send existing chat history to new user
   chatHistory.forEach(entry => {
     socket.send(entry.data);
+  });
+
+  // Notify everyone of new user count
+  broadcastUserCount();
+
+  socket.on('close', () => {
+    broadcastUserCount(); // Update count when someone disconnects
   });
 
   socket.on('message', async (message) => {
     let text;
 
-    // Parse incoming message formats
+    // Normalize message format
     if (typeof message === 'string') {
       text = message;
     } else if (message instanceof Buffer) {
@@ -34,7 +54,7 @@ server.on('connection', socket => {
       text = '[Unrecognized message format]';
     }
 
-    // Store message with timestamp
+    // Store with timestamp
     chatHistory.push({
       timestamp: Date.now(),
       data: text
@@ -42,7 +62,7 @@ server.on('connection', socket => {
 
     cleanOldMessages();
 
-    // Broadcast message to all clients
+    // Broadcast message to all connected clients
     server.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(text);
@@ -51,4 +71,4 @@ server.on('connection', socket => {
   });
 });
 
-console.log(`WebSocket server running on port ${PORT}`);
+console.log(`✅ WebSocket server running on port ${PORT}`);
